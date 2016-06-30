@@ -23,6 +23,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.graylog2.plugin.Message;
@@ -55,6 +56,7 @@ public class PagerDutyClient {
     private final String clientName;
     private final String clientUrl;
     private final ObjectMapper objectMapper;
+    private final String graylogUri;
 
     @VisibleForTesting
     PagerDutyClient(final String serviceKey,
@@ -62,12 +64,14 @@ public class PagerDutyClient {
                     final String incidentKeyPrefix,
                     final String clientName,
                     final String clientUrl,
+                    final String graylogUri,
                     final ObjectMapper objectMapper) {
         this.serviceKey = serviceKey;
         this.customIncidentKey = customIncidentKey;
         this.incidentKeyPrefix = incidentKeyPrefix;
         this.clientName = clientName;
         this.clientUrl = clientUrl;
+        this.graylogUri = graylogUri;
         this.objectMapper = objectMapper;
     }
 
@@ -75,8 +79,9 @@ public class PagerDutyClient {
                            final boolean customIncidentKey,
                            final String incidentKeyPrefix,
                            final String clientName,
-                           final String clientUrl) {
-        this(serviceKey, customIncidentKey, incidentKeyPrefix, clientName, clientUrl, new ObjectMapper());
+                           final String clientUrl,
+                           final String graylogUri) {
+        this(serviceKey, customIncidentKey, incidentKeyPrefix, clientName, clientUrl, graylogUri, new ObjectMapper());
     }
 
     public void trigger(final Stream stream, final AlertCondition.CheckResult checkResult) throws AlarmCallbackException {
@@ -119,6 +124,13 @@ public class PagerDutyClient {
             throw new AlarmCallbackException("Could not POST event trigger to PagerDuty API.", e);
         }
     }
+    private String buildStreamLink(String baseUrl, Stream stream) {
+        if (!baseUrl.endsWith("/")) {
+            baseUrl = baseUrl + "/";
+        }
+
+        return baseUrl + "streams/" + stream.getId() + "/messages?q=*&rangetype=relative&relative=3600";
+    }
 
     private PagerDutyEvent buildPagerDutyEvent(final Stream stream, final AlertCondition.CheckResult checkResult) {
         final String incidentKey;
@@ -136,6 +148,13 @@ public class PagerDutyClient {
                         "backlog", checkResult.getTriggeredCondition().getBacklog(),
                         "search_hits", getAlarmBacklog(checkResult).size(),
                         "alert_description", checkResult.getTriggeredCondition().getDescription()
+                ),
+                ImmutableList.<Object>of(
+                        ImmutableMap.<String, Object>of(
+                            "type", "link",
+                            "href", buildStreamLink(graylogUri, stream)
+                        )
+
                 )
         );
     }
@@ -178,6 +197,8 @@ public class PagerDutyClient {
         public String clientUrl;
         @JsonProperty
         public Map<String, Object> details;
+        @JsonProperty
+        public List<Object> contexts;
 
         public PagerDutyEvent(String serviceKey,
                               String eventType,
@@ -185,7 +206,8 @@ public class PagerDutyClient {
                               String incidentKey,
                               String client,
                               String clientUrl,
-                              Map<String, Object> details) {
+                              Map<String, Object> details,
+                              List<Object> contexts) {
             this.serviceKey = serviceKey;
             this.eventType = eventType;
             this.description = description;
@@ -193,6 +215,7 @@ public class PagerDutyClient {
             this.client = client;
             this.clientUrl = clientUrl;
             this.details = details;
+            this.contexts = contexts;
         }
     }
 
